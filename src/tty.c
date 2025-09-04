@@ -198,3 +198,11 @@ size_t tty_getwidth(tty_t *tty) {
 size_t tty_getheight(tty_t *tty) {
 	return tty->maxheight;
 }
+
+void tty_set_cursor_block(tty_t *tty) {
+    tty_printf(tty, "\033[2 q");
+}
+
+void tty_set_cursor_line(tty_t *tty) {
+    tty_printf(tty, "\033[6 q");
+}
