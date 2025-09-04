@@ -20,6 +20,7 @@ static const char *usage_str =
     " -0, --read-null          Read input delimited by ASCII NUL characters\n"
     " -j, --workers NUM        Use NUM workers for searching. (default is # of CPUs)\n"
     " -i, --show-info          Show selection info line\n"
+    " -m, --vim-mode           Enable Vim-style navigation (use ESC to switch modes)\n"
     " -h, --help     Display this help and exit\n"
     " -v, --version  Output version information and exit\n";
 
@@ -37,6 +38,7 @@ static struct option longopts[] = {{"show-matches", required_argument, NULL, 'e'
 				   {"version", no_argument, NULL, 'v'},
 				   {"benchmark", optional_argument, NULL, 'b'},
 				   {"workers", required_argument, NULL, 'j'},
+				   {"vim-mode", no_argument, NULL, 'm'},
 				   {"show-info", no_argument, NULL, 'i'},
 				   {"help", no_argument, NULL, 'h'},
 				   {NULL, 0, NULL, 0}};
@@ -49,6 +51,7 @@ void options_init(options_t *options) {
 	options->show_scores     = 0;
 	options->scrolloff       = 1;
 	options->tty_filename    = DEFAULT_TTY;
+	options->vim_mode        = 0;
 	options->num_lines       = DEFAULT_NUM_LINES;
 	options->prompt          = DEFAULT_PROMPT;
 	options->workers         = DEFAULT_WORKERS;
@@ -60,7 +63,7 @@ void options_parse(options_t *options, int argc, char *argv[]) {
 	options_init(options);
 
 	int c;
-	while ((c = getopt_long(argc, argv, "vhs0e:q:l:t:p:j:i", longopts, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "vhs0e:q:l:t:p:j:i:m", longopts, NULL)) != -1) {
 		switch (c) {
 			case 'v':
 				printf("%s " VERSION " © 2014-2025 John Hawthorn\n", argv[0]);
@@ -98,6 +101,9 @@ void options_parse(options_t *options, int argc, char *argv[]) {
 					usage(argv[0]);
 					exit(EXIT_FAILURE);
 				}
+				break;
+			case 'm':
+				options->vim_mode = 1;
 				break;
 			case 'l': {
 				int l;

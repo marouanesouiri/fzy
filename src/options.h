@@ -17,6 +17,7 @@ typedef struct {
 	unsigned int workers;
 	char input_delimiter;
 	int show_info;
+    int vim_mode;
 } options_t;
 
 void options_init(options_t *options);
