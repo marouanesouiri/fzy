@@ -21,6 +21,7 @@ typedef struct {
 	size_t cursor;
 
 	int ambiguous_key_pending;
+	int vim_mode_active;
 	char input[32]; /* Pending input buffer */
 
 	int exit;

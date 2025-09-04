@@ -6,6 +6,7 @@
 #include "match.h"
 #include "tty_interface.h"
 #include "../config.h"
+#include "tty.h"
 
 static int isprint_unicode(char c) {
 	return isprint(c) || c & (1 << 7);
@@ -91,6 +92,14 @@ static void draw(tty_interface_t *state) {
 		}
 	}
 
+    if (options->vim_mode && state->vim_mode_active) {
+        tty_set_cursor_block(tty);
+		tty_clearline(tty);
+    } else if (options->vim_mode && !state->vim_mode_active) {
+        tty_set_cursor_line(tty);
+		tty_clearline(tty);
+    }
+
 	tty_setcol(tty, 0);
 	tty_printf(tty, "%s%s", options->prompt, state->search);
 	tty_clearline(tty);
@@ -166,6 +175,13 @@ static void action_del_char(tty_interface_t *state) {
 	memmove(&state->search[state->cursor], &state->search[original_cursor], length - original_cursor + 1);
 }
 
+static void action_del_char_under_cursor(tty_interface_t *state) {
+	size_t length = strlen(state->search);
+	size_t cursor = state->cursor;
+
+	memmove(&state->search[state->cursor], &state->search[cursor+1], length - cursor + 1);
+}
+
 static void action_del_word(tty_interface_t *state) {
 	size_t original_cursor = state->cursor;
 	size_t cursor = state->cursor;
@@ -183,6 +199,13 @@ static void action_del_word(tty_interface_t *state) {
 static void action_del_all(tty_interface_t *state) {
 	memmove(state->search, &state->search[state->cursor], strlen(state->search) - state->cursor + 1);
 	state->cursor = 0;
+}
+
+static void action_change_all(tty_interface_t *state) {
+    state->search[0] = '\0';
+    if (state->vim_mode_active)
+        state->vim_mode_active = 0;
+    state->cursor = 0;
 }
 
 static void action_prev(tty_interface_t *state) {
@@ -245,10 +268,21 @@ static void action_autocomplete(tty_interface_t *state) {
 }
 
 static void action_exit(tty_interface_t *state) {
-	clear(state);
-	tty_close(state->tty);
+    if (state->options->vim_mode && !state->vim_mode_active) {
+        state->vim_mode_active = 1;
+        tty_set_cursor_block(state->tty);
+        tty_flush(state->tty);
+        return;
+    }
 
-	state->exit = EXIT_FAILURE;
+    clear(state);
+    tty_close(state->tty);
+
+    state->exit = EXIT_FAILURE;
+}
+
+static void action_to_insert_mode(tty_interface_t *state) {
+	state->vim_mode_active = 0;
 }
 
 static void append_search(tty_interface_t *state, char ch) {
@@ -325,6 +359,40 @@ static const keybinding_t keybindings[] = {{"\x1b", action_exit},       /* ESC *
 					   {"\x1b[201~", action_ignore},
 					   {NULL, NULL}};
 
+static const keybinding_t vim_mode_keybindings[] = {{"\x1b", action_exit},   /* ESC */
+					   {KEY_CTRL('C'), action_exit},	 /* C-C */
+
+					   {"\x71", action_exit},	 /* q */
+					   {"\x69", action_to_insert_mode},	 /* i */
+					   {"\x68", action_left},	 /* h */
+					   {"\x6A", action_next},	 /* j */
+					   {"\x6B", action_prev},	 /* k */
+					   {"\x6C", action_right},	 /* l */
+					   {"\x78", action_del_char_under_cursor},	/* x */
+					   {"\x64", action_del_all},  /* d */
+					   {"\x63", action_change_all},  /* c */
+					   {KEY_CTRL('X'), action_autocomplete}, /* (C-x) */
+					   {KEY_CTRL('Y'), action_emit},	 /* (C-y) */
+					   {"\x0D", action_emit},	 /* CR */
+
+					   {"\x1bOD", action_left}, /* LEFT */
+					   {"\x1b[D", action_left}, /* LEFT */
+					   {"\x1bOC", action_right}, /* RIGHT */
+					   {"\x1b[C", action_right}, /* RIGHT */
+					   {"\x1b[1~", action_beginning}, /* HOME */
+					   {"\x1b[H", action_beginning}, /* HOME */
+					   {"\x1b[4~", action_end}, /* END */
+					   {"\x1b[F", action_end}, /* END */
+					   {"\x1b[A", action_prev}, /* UP */
+					   {"\x1bOA", action_prev}, /* UP */
+					   {"\x1b[B", action_next}, /* DOWN */
+					   {"\x1bOB", action_next}, /* DOWN */
+					   {"\x1b[5~", action_pageup},
+					   {"\x1b[6~", action_pagedown},
+					   {"\x1b[200~", action_ignore},
+					   {"\x1b[201~", action_ignore},
+					   {NULL, NULL}};
+
 #undef KEY_CTRL
 
 static void handle_input(tty_interface_t *state, const char *s, int handle_ambiguous_key) {
@@ -333,20 +401,27 @@ static void handle_input(tty_interface_t *state, const char *s, int handle_ambig
 	char *input = state->input;
 	strcat(state->input, s);
 
+    keybinding_t *keybindings_set;
+    if (state->vim_mode_active) {
+        keybindings_set = vim_mode_keybindings;
+    } else {
+        keybindings_set = keybindings;
+    }
+
 	/* Figure out if we have completed a keybinding and whether we're in the
 	 * middle of one (both can happen, because of Esc). */
 	int found_keybinding = -1;
 	int in_middle = 0;
-	for (int i = 0; keybindings[i].key; i++) {
-		if (!strcmp(input, keybindings[i].key))
+	for (int i = 0; keybindings_set[i].key; i++) {
+		if (!strcmp(input, keybindings_set[i].key))
 			found_keybinding = i;
-		else if (!strncmp(input, keybindings[i].key, strlen(state->input)))
+		else if (!strncmp(input, keybindings_set[i].key, strlen(state->input)))
 			in_middle = 1;
 	}
 
 	/* If we have an unambiguous keybinding, run it.  */
 	if (found_keybinding != -1 && (!in_middle || handle_ambiguous_key)) {
-		keybindings[found_keybinding].action(state);
+		keybindings_set[found_keybinding].action(state);
 		strcpy(input, "");
 		return;
 	}
@@ -364,7 +439,7 @@ static void handle_input(tty_interface_t *state, const char *s, int handle_ambig
 
 	/* No matching keybinding, add to search */
 	for (int i = 0; input[i]; i++)
-		if (isprint_unicode(input[i]))
+		if (isprint_unicode(input[i]) && !state->vim_mode_active)
 			append_search(state, input[i]);
 
 	/* We have processed the input, so clear it */
